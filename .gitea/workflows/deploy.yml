@@ -1,0 +1,52 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  TARGET: deploy@192.168.20.11
+
+jobs:
+  deploy:
+    runs-on: linux
+    steps:
+      # git clone rather than actions/checkout: the runner fails to download actions.
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch "${{ gitea.ref_name }}" \
+            "https://x-access-token:${{ gitea.token }}@git.home.shawa.io/${{ gitea.repository }}.git" .
+
+      - name: Install tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq rsync openssh-client
+          corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Assemble release
+        run: |
+          mkdir -p release/.next
+          cp -a .next/standalone/. release/
+          cp -a .next/static release/.next/static
+          cp -a public drizzle release/
+          cp -a dist/scripts release/scripts
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan 192.168.20.11 >> ~/.ssh/known_hosts
+
+      - name: Sync release
+        run: rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" release/ "$TARGET:/opt/mapeo/"
+
+      # Migrations run in the unit's ExecStartPre, as the mapeo user.
+      - name: Restart
+        run: ssh -i ~/.ssh/deploy_key "$TARGET" sudo systemctl restart mapeo
