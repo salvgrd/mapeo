@@ -27,6 +27,32 @@ Las siguientes veces: `nix develop`, `db-up` y `pnpm dev`. Para pararlo, `db-dow
 
 Sin Nix, cualquier Postgres vale: exporta las variables de `.env.example` y usa `pnpm db:migrate` y `pnpm import:osm`.
 
+## Autoalojarlo
+
+Solo hace falta Docker con Compose (o Podman). `compose.yaml` levanta Postgres y la app, y la app aplica las migraciones al arrancar.
+
+```bash
+git clone <este repo> mapeo && cd mapeo
+cp .env.example .env       # pon POSTGRES_PASSWORD, y OSM_RELATION y OSM_EXCLUDE de tu distrito
+docker compose up -d --build
+docker compose exec app node scripts/import-osm.mjs   # tarda un minuto: descarga de Overpass
+docker compose exec app node scripts/create-user.mjs <usuario>
+```
+
+La app escucha solo en `127.0.0.1:3000`. Para entrar desde fuera hace falta un proxy inverso con HTTPS: la cookie de sesión es `Secure`, así que por HTTP plano se ve el mapa pero no se puede iniciar sesión (salvo en `localhost`). Con [Caddy](https://caddyserver.com), que saca el certificado solo:
+
+```
+mapeo.example.org {
+	reverse_proxy 127.0.0.1:3000
+}
+```
+
+Con el puerto solo en loopback y Caddy delante, `TRUST_PROXY=1` es seguro (ver [Seguridad](#seguridad)).
+
+- Actualizar: `git pull && docker compose up -d --build`.
+- Copia de seguridad: `docker compose exec db pg_dump -U mapeo mapeo > mapeo.sql`.
+- `POSTGRES_PASSWORD` va dentro de una URL: usa solo letras y números.
+
 ## Otro distrito
 
 `import:osm` lee dos variables, y cada una se puede sustituir con su flag:

@@ -1,0 +1,33 @@
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: mapeo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: mapeo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mapeo"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    build: .
+    image: mapeo
+    environment:
+      DATABASE_URL: postgresql://mapeo:${POSTGRES_PASSWORD}@db:5432/mapeo
+      OSM_RELATION: ${OSM_RELATION:-}
+      OSM_EXCLUDE: ${OSM_EXCLUDE:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Loopback only: a reverse proxy on this host serves it over HTTPS.
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

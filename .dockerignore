@@ -1,0 +1,6 @@
+.git
+.next
+.pgdata
+dist
+node_modules
+.env*
