@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useMemo, useState, useTransition } from "react";
 import { logout, setSegmentStatus } from "@/app/actions";
 import type { SegmentStatus } from "@/db/schema";
@@ -16,9 +17,15 @@ const StreetMap = dynamic(() => import("./StreetMap"), {
   loading: () => <div className="h-full w-full animate-pulse bg-neutral-200" />,
 });
 
-type Filter = SegmentStatus | "all";
-type Selection = { kind: "segment"; id: number } | { kind: "street"; name: string } | null;
 export type Focus = { key: number; points: LatLng[]; animate: boolean };
+
+// What a link should reproduce. `estado` null shows every status; `calle` and `tramo` are the selection.
+const urlState = {
+  barrio: parseAsInteger,
+  estado: parseAsStringLiteral(STATUS_ORDER),
+  calle: parseAsString,
+  tramo: parseAsInteger,
+};
 
 function countByStatus(list: Segment[]) {
   const c = { red: 0, yellow: 0, green: 0 };
@@ -40,19 +47,12 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
           }),
     [loaded, live],
   );
-  const [barrioId, setBarrioId] = useState<number | null>(null);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [{ barrio: barrioId, estado: filter, calle, tramo }, setUrl] = useQueryStates(urlState);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<SegmentStatus>>(new Set());
-  const [selection, setSelection] = useState<Selection>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [focus, setFocus] = useState<Focus>(() => ({
-    key: 0,
-    points: barrios.flatMap((b) => outerRingLatLngs(b.geometry).flat()),
-    animate: false,
-  }));
 
   const barrioName = useMemo(() => new Map(barrios.map((b) => [b.id, b.name])), [barrios]);
 
@@ -61,7 +61,7 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
     [segments, barrioId],
   );
   const visible = useMemo(
-    () => (filter === "all" ? inBarrio : inBarrio.filter((s) => s.status === filter)),
+    () => (filter === null ? inBarrio : inBarrio.filter((s) => s.status === filter)),
     [inBarrio, filter],
   );
   const counts = useMemo(() => countByStatus(inBarrio), [inBarrio]);
@@ -69,7 +69,7 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
   // Per status, the streets that have segments in it, with how many.
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return STATUS_ORDER.filter((st) => filter === "all" || filter === st).map((st) => {
+    return STATUS_ORDER.filter((st) => filter === null || filter === st).map((st) => {
       const perStreet = new Map<string, number>();
       for (const s of inBarrio) {
         if (s.status !== st || (q && !s.streetName.toLowerCase().includes(q))) continue;
@@ -81,12 +81,34 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
   }, [inBarrio, filter, query]);
 
   const highlighted = useMemo(() => {
-    if (!selection) return [];
-    if (selection.kind === "segment") return segments.filter((s) => s.id === selection.id);
-    return inBarrio.filter((s) => s.streetName === selection.name);
-  }, [selection, segments, inBarrio]);
+    if (tramo !== null) return segments.filter((s) => s.id === tramo);
+    if (calle !== null) return inBarrio.filter((s) => s.streetName === calle);
+    return [];
+  }, [tramo, calle, segments, inBarrio]);
 
-  const selectedSegment = selection?.kind === "segment" ? highlighted[0] : undefined;
+  const selectedSegment = tramo !== null ? highlighted[0] : undefined;
+
+  // The selected street, else the barrio, else the whole district.
+  function focusPoints() {
+    const street = inBarrio.filter((s) => s.streetName === calle).flatMap((s) => lineLatLngs(s.geometry));
+    if (street.length) return street;
+    const chosen = barrios.filter((b) => b.id === barrioId);
+    return (chosen.length ? chosen : barrios).flatMap((b) => outerRingLatLngs(b.geometry).flat());
+  }
+
+  const [focus, setFocus] = useState<Focus>(() => ({ key: 0, points: focusPoints(), animate: false }));
+  const [focusedOn, setFocusedOn] = useState({ barrioId, calle });
+
+  function refocus() {
+    setFocus((f) => ({ key: f.key + 1, points: focusPoints(), animate: true }));
+  }
+
+  // Move the map whenever the URL does, so the back button behaves like a click.
+  // Closing a street (calle back to null) leaves the map where it is.
+  if (focusedOn.barrioId !== barrioId || focusedOn.calle !== calle) {
+    setFocusedOn({ barrioId, calle });
+    if (focusedOn.barrioId !== barrioId || calle !== null) refocus();
+  }
 
   function toggleGroup(status: SegmentStatus) {
     setCollapsed((prev) => {
@@ -96,26 +118,20 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
     });
   }
 
-  function focusOn(points: LatLng[]) {
-    if (points.length) setFocus((f) => ({ key: f.key + 1, points, animate: true }));
-  }
-
   function chooseBarrio(id: number | null) {
-    setBarrioId(id);
-    setSelection(null);
-    const chosen = id === null ? barrios : barrios.filter((b) => b.id === id);
-    focusOn(chosen.flatMap((b) => outerRingLatLngs(b.geometry).flat()));
+    setUrl({ barrio: id, calle: null, tramo: null }, { history: "push" });
   }
 
   function selectStreet(name: string) {
-    setSelection({ kind: "street", name });
+    // Already selected: the URL won't change, so fly back to it here.
+    if (name === calle && tramo === null) refocus();
+    setUrl({ calle: name, tramo: null });
     setDrawerOpen(false);
     setError(null);
-    focusOn(inBarrio.filter((s) => s.streetName === name).flatMap((s) => lineLatLngs(s.geometry)));
   }
 
   function selectSegment(id: number) {
-    setSelection({ kind: "segment", id });
+    setUrl({ calle: null, tramo: id });
     setError(null);
   }
 
@@ -207,7 +223,7 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
                         <button
                           onClick={() => selectStreet(name)}
                           className={`flex w-full items-baseline gap-2 px-4 py-1.5 text-left text-sm hover:bg-neutral-100 ${
-                            selection?.kind === "street" && selection.name === name ? "bg-neutral-200 font-medium" : ""
+                            tramo === null && calle === name ? "bg-neutral-200 font-medium" : ""
                           }`}
                         >
                           <span className="flex-1">{name}</span>
@@ -260,11 +276,11 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
             ))}
           </select>
           <div className="flex overflow-hidden rounded bg-white text-sm shadow">
-            <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>
+            <FilterButton active={filter === null} onClick={() => setUrl({ estado: null })}>
               Todos
             </FilterButton>
             {STATUS_ORDER.map((st) => (
-              <FilterButton key={st} active={filter === st} onClick={() => setFilter(st)}>
+              <FilterButton key={st} active={filter === st} onClick={() => setUrl({ estado: st })}>
                 <span className={`mr-1.5 inline-block h-2.5 w-2.5 rounded-full ${STATUS_META[st].swatch}`} />
                 {counts[st]}
               </FilterButton>
@@ -272,7 +288,7 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
           </div>
         </div>
 
-        {selection && highlighted.length > 0 && (
+        {highlighted.length > 0 && (
           <div className="absolute bottom-6 left-3 right-3 z-[500] mx-auto max-w-md rounded-lg bg-white p-4 shadow-lg">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -283,7 +299,7 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
                     : streetSummary(highlighted)}
                 </p>
               </div>
-              <button className="text-xl leading-none" onClick={() => setSelection(null)} aria-label="Cerrar">
+              <button className="text-xl leading-none" onClick={() => setUrl({ calle: null, tramo: null })} aria-label="Cerrar">
                 ×
               </button>
             </div>
