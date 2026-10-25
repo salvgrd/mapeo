@@ -43,6 +43,7 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
   const [barrioId, setBarrioId] = useState<number | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<SegmentStatus>>(new Set());
   const [selection, setSelection] = useState<Selection>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -86,6 +87,14 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
   }, [selection, segments, inBarrio]);
 
   const selectedSegment = selection?.kind === "segment" ? highlighted[0] : undefined;
+
+  function toggleGroup(status: SegmentStatus) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(status)) next.add(status);
+      return next;
+    });
+  }
 
   function focusOn(points: LatLng[]) {
     if (points.length) setFocus((f) => ({ key: f.key + 1, points, animate: true }));
@@ -168,31 +177,50 @@ export default function MapApp({ barrios, segments: loaded, user, lastChangeId }
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {groups.map(({ status, streets }) => (
-            <section key={status}>
-              <h2 className="sticky top-0 flex items-center gap-2 bg-neutral-50 px-4 py-2 text-sm font-medium">
-                <span className={`h-3 w-3 rounded-full ${STATUS_META[status].swatch}`} />
-                {STATUS_META[status].label}
-                <span className="ml-auto text-neutral-500">{counts[status]} tramos</span>
-              </h2>
-              <ul>
-                {streets.map(([name, n]) => (
-                  <li key={name}>
-                    <button
-                      onClick={() => selectStreet(name)}
-                      className={`flex w-full items-baseline gap-2 px-4 py-1.5 text-left text-sm hover:bg-neutral-100 ${
-                        selection?.kind === "street" && selection.name === name ? "bg-neutral-200 font-medium" : ""
-                      }`}
+          {groups.map(({ status, streets }) => {
+            // While searching, keep every group open so matches aren't hidden.
+            const open = query.trim() !== "" || !collapsed.has(status);
+            return (
+              <section key={status}>
+                <h2 className="sticky top-0 bg-neutral-50 text-sm font-medium">
+                  <button
+                    onClick={() => toggleGroup(status)}
+                    aria-expanded={open}
+                    className="flex w-full cursor-pointer items-center gap-2 px-4 py-2 text-left hover:bg-neutral-100"
+                  >
+                    <svg
+                      viewBox="0 0 12 12"
+                      aria-hidden="true"
+                      className={`h-3 w-3 text-neutral-500 transition-transform ${open ? "rotate-90" : ""}`}
                     >
-                      <span className="flex-1">{name}</span>
-                      <span className="text-xs text-neutral-500">{n}</span>
-                    </button>
-                  </li>
-                ))}
-                {streets.length === 0 && <li className="px-4 py-1.5 text-sm text-neutral-400">Ninguna</li>}
-              </ul>
-            </section>
-          ))}
+                      <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
+                    <span className={`h-3 w-3 rounded-full ${STATUS_META[status].swatch}`} />
+                    {STATUS_META[status].label}
+                    <span className="ml-auto text-neutral-500">{counts[status]} tramos</span>
+                  </button>
+                </h2>
+                {open && (
+                  <ul>
+                    {streets.map(([name, n]) => (
+                      <li key={name}>
+                        <button
+                          onClick={() => selectStreet(name)}
+                          className={`flex w-full items-baseline gap-2 px-4 py-1.5 text-left text-sm hover:bg-neutral-100 ${
+                            selection?.kind === "street" && selection.name === name ? "bg-neutral-200 font-medium" : ""
+                          }`}
+                        >
+                          <span className="flex-1">{name}</span>
+                          <span className="text-xs text-neutral-500">{n}</span>
+                        </button>
+                      </li>
+                    ))}
+                    {streets.length === 0 && <li className="px-4 py-1.5 text-sm text-neutral-400">Ninguna</li>}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
         </div>
       </aside>
 
