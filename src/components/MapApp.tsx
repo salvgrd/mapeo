@@ -9,6 +9,7 @@ import type { SessionUser } from "@/lib/auth";
 import { STATUS_META, STATUS_ORDER } from "@/lib/status";
 import { lineLatLngs, outerRingLatLngs, type LatLng } from "./geo";
 import type { Barrio, Segment } from "./types";
+import { useLiveStatus } from "./useLiveStatus";
 
 const StreetMap = dynamic(() => import("./StreetMap"), {
   ssr: false,
@@ -25,9 +26,20 @@ function countByStatus(list: Segment[]) {
   return c;
 }
 
-type Props = { barrios: Barrio[]; segments: Segment[]; user: SessionUser | null };
+type Props = { barrios: Barrio[]; segments: Segment[]; user: SessionUser | null; lastChangeId: number };
 
-export default function MapApp({ barrios, segments, user }: Props) {
+export default function MapApp({ barrios, segments: loaded, user, lastChangeId }: Props) {
+  const { live, apply, connection } = useLiveStatus(lastChangeId);
+  const segments = useMemo(
+    () =>
+      live.size === 0
+        ? loaded
+        : loaded.map((s) => {
+            const status = live.get(s.id);
+            return status && status !== s.status ? { ...s, status } : s;
+          }),
+    [loaded, live],
+  );
   const [barrioId, setBarrioId] = useState<number | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -103,7 +115,8 @@ export default function MapApp({ barrios, segments, user }: Props) {
     setError(null);
     startTransition(async () => {
       try {
-        await setSegmentStatus(selectedSegment.id, status);
+        const result = await setSegmentStatus(selectedSegment.id, status);
+        apply(result.segmentId, result.status);
       } catch {
         setError("No se pudo guardar. ¿Sigue abierta la sesión?");
       }
@@ -119,7 +132,13 @@ export default function MapApp({ barrios, segments, user }: Props) {
       >
         <header className="border-b border-neutral-200 p-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold">Mapeo de calles</h1>
+            <h1 className="flex items-center gap-2 text-lg font-semibold">
+              Mapeo de calles
+              <span
+                className={`h-2 w-2 rounded-full ${connection === "live" ? "bg-green-600" : "bg-neutral-400"}`}
+                title={connection === "live" ? "En directo" : "Reconectando…"}
+              />
+            </h1>
             <button className="text-2xl leading-none md:hidden" onClick={() => setDrawerOpen(false)} aria-label="Cerrar">
               ×
             </button>
