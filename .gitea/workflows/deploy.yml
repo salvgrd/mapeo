@@ -42,10 +42,13 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan 192.168.20.11 >> ~/.ssh/known_hosts
+          # Pinned, not keyscanned: a keyscan trusts whoever answers on that IP.
+          echo "192.168.20.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhK79oT+6JYBqQewlfSX5OVGLpo6TlxTq8l9jUaG3Mr" >> ~/.ssh/known_hosts
 
       - name: Sync release
-        run: rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" release/ "$TARGET:/opt/mapeo/"
+        # --chmod: the runner builds with umask 000, and -a would copy that mode
+        # over, leaving /opt/mapeo world-writable.
+        run: rsync -az --delete --chmod=D755,F644 -e "ssh -i ~/.ssh/deploy_key" release/ "$TARGET:/opt/mapeo/"
 
       # Migrations run in the unit's ExecStartPre, as the mapeo user.
       - name: Restart
