@@ -43,7 +43,7 @@
 
       db-seed = pkgs.writeShellScriptBin "db-seed" ''
         set -e
-        pnpm -s import:osm --relation 356984 --exclude "Paseo de la Castellana"
+        pnpm -s import:osm
         if [ "$1" = "--random" ]; then
           psql -qc "update segments set status = case when random() < 0.25 then 'green' when random() < 0.13 then 'yellow' else 'red' end::segment_status;"
           echo "random statuses applied"
@@ -68,6 +68,8 @@
           export PGUSER=mapeo
           export PGDATABASE=mapeo
           export DATABASE_URL="postgresql:///mapeo?host=$PGDATA&user=mapeo"
+          export OSM_RELATION="''${OSM_RELATION:-356984}"
+          export OSM_EXCLUDE="''${OSM_EXCLUDE-Paseo de la Castellana}"
           echo "mapeo: db-up · db-seed [--random] · pnpm user:create <user> · pnpm dev · db-down · db-reset"
         '';
       };

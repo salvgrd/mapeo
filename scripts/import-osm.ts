@@ -10,7 +10,10 @@ const USAGE = `Usage:
 Imports the district's sub-boundaries (admin_level --sub-level, default 10) as
 barrios, and its named streets split into segments at every intersection.
 Re-running keeps the status of every segment whose OSM way still exists.
---prune deletes segments that are no longer in OSM, with their history.`;
+--prune deletes segments that are no longer in OSM, with their history.
+
+OSM_RELATION and OSM_EXCLUDE (street names separated by ";") are the defaults
+for --relation and --exclude. A flag replaces its variable, it does not add to it.`;
 
 const HIGHWAYS = "^(primary|secondary|tertiary|unclassified|residential|living_street|pedestrian)$";
 // A tunnel cannot be papered. `!~` also matches ways with no tunnel tag at all.
@@ -23,19 +26,22 @@ const { values } = parseArgs({
   options: {
     relation: { type: "string" },
     "sub-level": { type: "string", default: "10" },
-    exclude: { type: "string", multiple: true, default: [] },
+    exclude: { type: "string", multiple: true },
     "dry-run": { type: "boolean", default: false },
     prune: { type: "boolean", default: false },
   },
 });
 
-const relationId = Number(values.relation);
+const relationId = Number(values.relation ?? process.env.OSM_RELATION);
 if (!Number.isInteger(relationId) || relationId <= 0) {
   console.error(USAGE);
   process.exit(1);
 }
 const areaId = 3600000000 + relationId; // Overpass area ids are relation ids offset by 3.6e9
-const excluded = new Set(values.exclude);
+// ";" because OSM already uses it to separate several values in one tag.
+const excluded = new Set(
+  values.exclude ?? (process.env.OSM_EXCLUDE ?? "").split(";").map((s) => s.trim()).filter(Boolean),
+);
 
 type LatLon = { lat: number; lon: number };
 type Way = { type: "way"; id: number; nodes: number[]; tags: Record<string, string>; geometry: LatLon[] };

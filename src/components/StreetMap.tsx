@@ -33,9 +33,11 @@ export default function StreetMap({
   const outlines = useMemo(() => barrios.map((b) => ({ id: b.id, rings: outerRingLatLngs(b.geometry) })), [barrios]);
 
   return (
+    // Placeholder view: FocusOn fits the imported barrios on the first render,
+    // so this only shows on an empty database.
     <MapContainer
-      center={[40.46, -3.7]}
-      zoom={14}
+      center={[20, 0]}
+      zoom={2}
       renderer={renderer}
       zoomControl={false}
       className="h-full w-full"
