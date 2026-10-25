@@ -5,6 +5,7 @@ import { useEffect, useMemo } from "react";
 import { MapContainer, Polygon, Polyline, TileLayer, useMap, ZoomControl } from "react-leaflet";
 import { STATUS_META } from "@/lib/status";
 import { lineLatLngs, outerRingLatLngs } from "./geo";
+import MyLocation from "./MyLocation";
 import type { Focus } from "./MapApp";
 import type { Barrio, Segment } from "./types";
 
@@ -86,6 +87,7 @@ export default function StreetMap({
         />
       ))}
       <FocusOn focus={focus} />
+      <MyLocation focusKey={focus.key} />
     </MapContainer>
   );
 }
